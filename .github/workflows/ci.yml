@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: cinescope_test_test
+          MYSQL_USER: cinescope
+          MYSQL_PASSWORD: cinescopepass
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -u root -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      APP_ENV: test
+      APP_DEBUG: 1
+      # IMPORTANT : chez toi, Symfony ajoute _test => cinescope_test_test
+      DATABASE_URL: "mysql://cinescope:cinescopepass@127.0.0.1:3306/cinescope_test?serverVersion=8.0&charset=utf8mb4"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          tools: composer:v2
+          extensions: mbstring, intl, pdo_mysql
+          coverage: none
+
+      - name: Cache Composer
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.composer/cache/files
+            vendor
+          key: ${{ runner.os }}-composer-${{ hashFiles('composer.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-composer-
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Wait for MySQL
+        run: |
+          for i in {1..30}; do
+            mysqladmin ping -h 127.0.0.1 -u root -proot && break
+            sleep 2
+          done
+
+      - name: Prepare test database (drop/create/migrate)
+        run: |
+          php bin/console doctrine:database:drop --env=test --force || true
+          php bin/console doctrine:database:create --env=test
+          php bin/console doctrine:migrations:migrate --env=test -n
+
+      - name: Run PHPUnit
+        run: php bin/phpunit
