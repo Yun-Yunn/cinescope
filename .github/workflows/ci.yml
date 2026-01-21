@@ -3,6 +3,7 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 jobs:
   tests:
@@ -27,7 +28,7 @@ jobs:
     env:
       APP_ENV: test
       APP_DEBUG: 1
-      # IMPORTANT : chez toi, Symfony ajoute _test => cinescope_test_test
+      # Chez toi Symfony ajoute dbname_suffix "_test" => DB finale: cinescope_test_test
       DATABASE_URL: "mysql://cinescope:cinescopepass@127.0.0.1:3306/cinescope_test?serverVersion=8.0&charset=utf8mb4"
 
     steps:
@@ -62,11 +63,18 @@ jobs:
             sleep 2
           done
 
-      - name: Prepare test database (drop/create/migrate)
+      - name: Prepare test database (drop/create)
         run: |
           php bin/console doctrine:database:drop --env=test --force || true
           php bin/console doctrine:database:create --env=test
-          php bin/console doctrine:migrations:migrate --env=test -n
+
+      - name: Setup schema (migrations if available, else schema:create)
+        run: |
+          if [ -d "migrations" ] && [ "$(ls -A migrations | wc -l)" -gt 0 ]; then
+            php bin/console doctrine:migrations:migrate --env=test -n
+          else
+            php bin/console doctrine:schema:create --env=test
+          fi
 
       - name: Run PHPUnit
         run: php bin/phpunit
